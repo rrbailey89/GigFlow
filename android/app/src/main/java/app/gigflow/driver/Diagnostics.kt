@@ -23,7 +23,7 @@ object Diagnostics {
 
     data class Snap(
         val at: Long,
-        val outcome: String, // "offer" | "miss" | "idle"
+        val outcome: String, // "offer" | "miss" | "trip" | "idle"
         val texts: List<String>,
     )
 

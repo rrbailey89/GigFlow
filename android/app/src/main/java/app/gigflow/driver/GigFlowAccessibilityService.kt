@@ -177,6 +177,12 @@ class GigFlowAccessibilityService : AccessibilityService() {
         }
 
         val nodes = OfferParser.flatten(root)
+        if (OfferParser.isActiveTripNavigation(pkg, nodes.map { it.text })) {
+            // Stop any stale overlay or pending automated tap immediately.
+            Diagnostics.record(this, pkg, "trip", nodes.map { it.diag() })
+            offerGone()
+            return
+        }
         val offer = OfferParser.parse(pkg, nodes, extraRe, curSymbol)
         if (offer == null) {
             // A screen with a money figure but no parse is a "miss" — the

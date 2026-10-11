@@ -156,6 +156,30 @@ object OfferParser {
      *  Uber docs: "tap anywhere on the black bar"; Lyft: "tap anywhere". */
     private val TAP_ANYWHERE_PKGS = setOf("com.ubercab.driver", "com.lyft.android.driver")
 
+    /** Ride navigation contains time, miles and sometimes a fare summary.
+     *  Never score that screen as a new offer without a new-request cue.
+     *  A back-to-back request can still display over an active ride.
+     */
+    private val ACTIVE_TRIP_STATUS = Regex(
+        """\b(?:dropping\s+off|picking\s+up|on\s+trip\s+with)\b""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val ACTIVE_TRIP_NAVIGATION = Regex(
+        """\b(?:navigate|start\s+(?:trip|ride)|end\s+(?:trip|ride)|complete\s+(?:trip|ride))\b""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val NEW_TRIP_REQUEST = Regex(
+        """\b(?:trip\s+radar|new\s+(?:trip|ride|request)|(?:ride|trip)\s+request|exclusive|accept|decline|match\s+me)\b""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    fun isActiveTripNavigation(pkg: String, texts: List<String>): Boolean {
+        if (pkg !in TAP_ANYWHERE_PKGS) return false
+        return texts.any { ACTIVE_TRIP_STATUS.containsMatchIn(it) } &&
+            texts.any { ACTIVE_TRIP_NAVIGATION.containsMatchIn(it) } &&
+            texts.none { NEW_TRIP_REQUEST.containsMatchIn(it) }
+    }
+
     data class FlatNode(
         val text: String,
         val viewId: String?,
@@ -191,6 +215,7 @@ object OfferParser {
         extraSymbol: String = "$",
     ): DetectedOffer? {
         val texts = nodes.map { it.text }
+        if (isActiveTripNavigation(pkg, texts)) return null
 
         // Collect money figures with their context. The card total is usually
         // the largest standalone amount; "incl. tip" lines become tips.

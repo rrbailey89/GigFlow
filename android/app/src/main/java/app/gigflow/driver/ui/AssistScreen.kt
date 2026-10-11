@@ -167,6 +167,7 @@ class AssistScreen(
                 snap == null -> "Not seen yet" to p.label3
                 snap.outcome == "offer" -> "Offer scored · ${ago(snap.at)}" to p.green
                 snap.outcome == "miss" -> "Screen missed · ${ago(snap.at)}" to p.orange
+                snap.outcome == "trip" -> "Active trip ignored · ${ago(snap.at)}" to p.label2
                 else -> "Screen seen · ${ago(snap.at)}" to p.label2
             }
             card.addView(Sections.row(ctx, p,
@@ -202,9 +203,11 @@ class AssistScreen(
             setTextColor(p.label); setPadding(0, 0, 0, dp(ctx, 4f))
         })
         col.addView(TextView(ctx).apply {
-            text = if (snap.outcome == "miss")
-                "This screen had a price on it but wasn't read as an offer — the app's layout probably changed. Tap 'Share this report' and send it over."
-            else "Everything the assistant read on the last screen."
+            text = when (snap.outcome) {
+                "miss" -> "This screen had a price on it but wasn't read as an offer — the app's layout probably changed. Tap 'Share this report' and send it over."
+                "trip" -> "GigFlow recognized active-trip navigation and intentionally ignored it. New ride requests with clear offer controls can still be scored."
+                else -> "Everything the assistant read on the last screen."
+            }
             textSize = Ios.T_FOOTNOTE; setTextColor(p.label2)
             setPadding(0, 0, 0, dp(ctx, 10f))
         })
