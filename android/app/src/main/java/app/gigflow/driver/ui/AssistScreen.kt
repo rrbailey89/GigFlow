@@ -205,57 +205,77 @@ class AssistScreen(
 
     /** Sheet listing the texts the parser read — screenshot this to report. */
     private fun showDiag(name: String, snap: Diagnostics.Snap) {
+        val pkg = watchedApps.firstOrNull { it.first == name }?.second ?: "unknown"
+        val version = try {
+            ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "unknown"
+        } catch (_: Exception) { "unknown" }
+        val report = buildString {
+            append("$name · outcome=${snap.outcome}\n")
+            append("pkg=$pkg\napp=$version\n\n")
+            snap.texts.forEach { append("· $it\n") }
+        }
+
         val sheet = IosSheet(ctx, p)
-        val col = LinearLayout(ctx).apply {
+        val header = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(ctx, 20f), dp(ctx, 4f), dp(ctx, 20f), dp(ctx, 12f))
         }
-        col.addView(TextView(ctx).apply {
+        header.addView(TextView(ctx).apply {
             text = "$name · ${snap.outcome}"
-            textSize = Ios.T_HEADLINE; setTypeface(typeface, Typeface.BOLD)
-            setTextColor(p.label); setPadding(0, 0, 0, dp(ctx, 4f))
+            textSize = Ios.T_HEADLINE
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(p.label)
         })
-        col.addView(TextView(ctx).apply {
-            text = when (snap.outcome) {
-                "miss" -> "This screen had a price on it but wasn't read as an offer — the app's layout probably changed. Tap 'Share this report' and send it over."
-                "trip" -> "GigFlow recognized active-trip navigation and intentionally ignored it. New ride requests with clear offer controls can still be scored."
-                "ignored" -> "GigFlow detected money but no definite request or Accept control. It ignored this screen. Share this report if a real request was missed."
-                else -> "Everything the assistant read on the last screen."
-            }
-            textSize = Ios.T_FOOTNOTE; setTextColor(p.label2)
-            setPadding(0, 0, 0, dp(ctx, 10f))
+        header.addView(TextView(ctx).apply {
+            text = "Copy the diagnostics to the clipboard and paste it into chat. Remove passenger details before sharing."
+            textSize = Ios.T_FOOTNOTE
+            setTextColor(p.label2)
+            setPadding(0, dp(ctx, 4f), 0, dp(ctx, 10f))
         })
-        snap.texts.forEach { t ->
-            col.addView(TextView(ctx).apply {
-                text = "· $t"
-                textSize = Ios.T_FOOTNOTE; setTextColor(p.label)
+        val copy = iosButton(ctx, p, "Copy report to clipboard")
+        copy.setOnClickListener {
+            val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as
+                android.content.ClipboardManager
+            clipboard.setPrimaryClip(
+                android.content.ClipData.newPlainText("GigFlow diagnostics", report)
+            )
+            Toast.makeText(ctx, "Diagnostics copied", Toast.LENGTH_SHORT).show()
+        }
+        header.addView(copy, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        sheet.add(header)
+
+        // The scrollable diagnostics cannot push the Copy button offscreen.
+        val lines = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(ctx, 20f), dp(ctx, 4f), dp(ctx, 20f), dp(ctx, 12f))
+        }
+        snap.texts.forEach { line ->
+            lines.addView(TextView(ctx).apply {
+                text = "· $line"
+                textSize = Ios.T_FOOTNOTE
+                setTextColor(p.label)
                 setPadding(0, dp(ctx, 2f), 0, dp(ctx, 2f))
             })
         }
-        // Share the raw node dump — [tap]/view-id markers included — so a
-        // parse miss can be reported as text, not just a screenshot.
-        col.addView(TextView(ctx).apply {
-            text = "Share this report"
-            textSize = Ios.T_BODY; setTypeface(typeface, Typeface.BOLD)
-            setTextColor(p.tint); gravity = android.view.Gravity.CENTER
-            setPadding(0, dp(ctx, 14f), 0, dp(ctx, 6f))
-            setOnClickListener {
-                val body = buildString {
-                    append("$name · outcome=${snap.outcome}\n")
-                    append("pkg=${
-                        watchedApps.firstOrNull { it.first == name }?.second ?: "?"
-                    }\n")
-                    append("app=${ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName}\n\n")
-                    snap.texts.forEach { append("· $it\n") }
-                }
-                val send = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, body)
-                }
-                ctx.startActivity(Intent.createChooser(send, "Share diagnostics"))
+        val scroller = android.widget.ScrollView(ctx).apply { addView(lines) }
+        sheet.add(scroller)
+        scroller.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(ctx, 320f))
+
+        val share = iosButton(ctx, p, "Share report")
+        share.setOnClickListener {
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, report)
             }
-        })
-        sheet.add(col).show()
+            ctx.startActivity(Intent.createChooser(send, "Share diagnostics"))
+        }
+        val footer = LinearLayout(ctx).apply {
+            setPadding(dp(ctx, 20f), dp(ctx, 8f), dp(ctx, 20f), 0)
+            addView(share)
+        }
+        sheet.add(footer).show()
     }
 
     private fun automationCard(): View {

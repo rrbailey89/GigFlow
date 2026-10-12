@@ -27,8 +27,9 @@ Five tabs behind a floating frosted tab bar:
 
 - Watches the offer screens of the driver apps you choose (Uber Driver,
   Lyft Driver, Dasher, Instacart Shopper, Amazon Flex, Spark Driver, Wolt
-  Courier Partner, foodora rider) via `AccessibilityService` — scoped by
-  package name, blind to everything else.
+  Courier Partner, foodora rider) via `AccessibilityService`. It reads
+  screen content only in those driver apps. Foreground-window package
+  changes elsewhere are observed only to dismiss lingering overlays.
 - Reads the offer card off the screen (payout, distance, duration,
   accept/decline buttons, the offer's own countdown when shown) with
   text-pattern parsing — layout-independent.

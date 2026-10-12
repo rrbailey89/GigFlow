@@ -19,9 +19,17 @@ object OfferParser {
     // "ft" is feet, not forint. The (?![\p{L}\p{N}]) tail instead of \b keeps
     // tokens ending in ł/č/₺ matching — and stays inside what Android's
     // ICU regex engine can compile (no (?U), no lookbehind).
+    // Match one amount only. The old loose separator pattern read
+    // "$61.01 67.1 mi" as $610,167.10 by joining fare and mileage.
+    private const val AMOUNT =
+        "(?:\\d{1,3}(?:[ '\\u00A0\\u202F]\\d{3})+(?:[.,]\\d{1,2})?|" +
+            "\\d{1,3}(?:,\\d{3})+(?:\\.\\d{1,2})?|" +
+            "\\d{1,3}(?:\\.\\d{3})+(?:,\\d{1,2})?|" +
+            "\\d+(?:[.,]\\d{1,2})?)"
+
     val MONEY = Regex(
-        "([$€£₺₴]|USD|EUR|GBP)\\s*(\\d(?:[\\d., '\\u00A0]{0,12}\\d)?)|" +
-            "(\\d(?:[\\d., '\\u00A0]{0,12}\\d)?)\\s*" +
+        "([$€£₺₴]|USD|EUR|GBP)\\s*($AMOUNT)|" +
+            "($AMOUNT)\\s*" +
             "(Ft|HUF|huf|EUR|eur|kr|Kr|KR|SEK|NOK|DKK|PLN|pln|zł|Zł|RON|ron|" +
             "lei|CZK|czk|Kč|TL|TRY|uah|UAH|₺|₴|USD|usd)(?![\\p{L}\\p{N}])",
     )
@@ -39,7 +47,7 @@ object OfferParser {
      * the last separator = thousands), "2 340"→2340, "1,234.56"→1234.56.
      */
     private fun parseAmount(raw: String): Double? {
-        val s = raw.replace(" ", "").replace(" ", "").replace("'", "")
+        val s = raw.replace(" ", "").replace("\u00A0", "").replace("\u202F", "").replace("'", "")
         val lastSep = maxOf(s.lastIndexOf('.'), s.lastIndexOf(','))
         val normalized = if (lastSep >= 0 && s.length - lastSep - 1 in 1..2) {
             s.substring(0, lastSep).filter { it.isDigit() } + "." + s.substring(lastSep + 1)
@@ -80,7 +88,7 @@ object OfferParser {
         val key = toks.joinToString("|")
         if (key == extraKey) return extraRe
         val alt = toks.joinToString("|") { Regex.escape(it) }
-        val num = "(\\d(?:[\\d., '\\u00A0]{0,12}\\d)?)"
+        val num = "($AMOUNT)"
         // Lookahead, not \b — \b can't anchor after non-word symbols (₺, ₩, R$)
         // so "100 ₺" would silently fail at end-of-string.
         extraRe = Regex("(?:$alt)\\s*$num|$num\\s*(?:$alt)(?![\\p{L}\\p{N}])")
@@ -199,10 +207,36 @@ object OfferParser {
         RegexOption.IGNORE_CASE,
     )
 
+    // A reservation preview in Discover also contains an Accept button.
+    // It is not a request-detail screen and should never show a verdict.
+    private val RESERVATION_DETAIL_TITLE = Regex(
+        """^reservation\s+request$""", RegexOption.IGNORE_CASE,
+    )
+    private val RESERVATION_ACCEPT_ACTION = Regex(
+        """^accept(?:\s*[•·:]\s*(?:[$€£]|USD|EUR|GBP)\s*\d+(?:[.,]\d{1,2})?)?$""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    fun isReservationDetailScreen(pkg: String, texts: List<String>): Boolean =
+        isRidesharePackage(pkg) &&
+            texts.any { RESERVATION_DETAIL_TITLE.matches(it.trim()) }
+
+    fun isReservationListScreen(pkg: String, texts: List<String>): Boolean =
+        isRidesharePackage(pkg) &&
+            !isReservationDetailScreen(pkg, texts) &&
+            texts.any {
+                it.trim().equals("Reservations", ignoreCase = true) ||
+                    it.trim().equals("Reservation", ignoreCase = true)
+            }
+
     fun isRidesharePackage(pkg: String): Boolean = pkg in TAP_ANYWHERE_PKGS
 
     fun hasExplicitRideshareRequestCue(pkg: String, texts: List<String>): Boolean {
         if (!isRidesharePackage(pkg)) return true
+        if (isReservationDetailScreen(pkg, texts)) {
+            return texts.any { RESERVATION_ACCEPT_ACTION.matches(it.trim()) }
+        }
+        if (isReservationListScreen(pkg, texts)) return false
         return texts.any { raw ->
             val label = raw.trim()
             (label.length <= 100 && REQUEST_HEADER.containsMatchIn(label)) ||
@@ -264,10 +298,19 @@ object OfferParser {
         }
         if (moneyNodes.isEmpty()) return null
 
-        val payout = moneyNodes
-            .filter { it.amount > 0.5 && !TIP_WORD.containsMatchIn(it.raw) }
-            .maxOfOrNull { it.amount } ?: return null
-        val payoutMoney = moneyNodes.firstOrNull { it.amount == payout }
+        // The reservation details' Accept button includes that ride's fare.
+        // Prefer its amount over prices from other parts of the screen.
+        val reservationAcceptMoney = if (isReservationDetailScreen(pkg, texts)) {
+            moneyNodes.firstOrNull {
+                RESERVATION_ACCEPT_ACTION.matches(it.node.text.trim())
+            }
+        } else null
+        val payout = reservationAcceptMoney?.amount ?: (
+            moneyNodes.filter { it.amount > 0.5 && !TIP_WORD.containsMatchIn(it.raw) }
+                .maxOfOrNull { it.amount } ?: return null
+        )
+        val payoutMoney = reservationAcceptMoney
+            ?: moneyNodes.firstOrNull { it.amount == payout }
         val currency = payoutMoney?.currency ?: "$"
 
         val tip = moneyNodes
@@ -322,15 +365,25 @@ object OfferParser {
 
         val isReservation = texts.any { RESERVATION.containsMatchIn(it) }
 
-        val acceptWords = if (isRidesharePackage(pkg)) RIDE_ACCEPT_ACTION else ACCEPT_WORDS
+        val reservationDetail = isReservationDetailScreen(pkg, texts)
+        val acceptWords = when {
+            reservationDetail -> RESERVATION_ACCEPT_ACTION
+            isRidesharePackage(pkg) -> RIDE_ACCEPT_ACTION
+            else -> ACCEPT_WORDS
+        }
         val declineWords = if (isRidesharePackage(pkg)) RIDE_DECLINE_ACTION else DECLINE_WORDS
-        val accept = nodeMatching(acceptWords, clickableOnly = true)
-            ?: nodeMatching(acceptWords, clickableOnly = false)
-            ?: if (isReservation && pkg == "com.amazon.rabbit") {
-                nodeMatching(RESERVE_ACCEPT, clickableOnly = true)
-                    ?: nodeMatching(RESERVE_ACCEPT, clickableOnly = false)
-            } else null
-            ?: tapAnywhereAccept(payoutMoney?.node)
+        val accept = if (reservationDetail) {
+            // Never fall back to blindly tapping a reservation detail card.
+            nodeMatching(acceptWords, clickableOnly = true)
+        } else {
+            nodeMatching(acceptWords, clickableOnly = true)
+                ?: nodeMatching(acceptWords, clickableOnly = false)
+                ?: if (isReservation && pkg == "com.amazon.rabbit") {
+                    nodeMatching(RESERVE_ACCEPT, clickableOnly = true)
+                        ?: nodeMatching(RESERVE_ACCEPT, clickableOnly = false)
+                } else null
+                ?: tapAnywhereAccept(payoutMoney?.node)
+        }
         val decline = nodeMatching(declineWords, clickableOnly = true)
             ?: nodeMatching(declineWords, clickableOnly = false)
 

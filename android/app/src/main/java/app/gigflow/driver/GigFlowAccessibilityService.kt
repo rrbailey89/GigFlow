@@ -26,6 +26,13 @@ class GigFlowAccessibilityService : AccessibilityService() {
     private var lastSeenAt = 0L
     private var lastScanAt = 0L
     private var activeOffer: ScoredOffer? = null
+    private var missingOfferRunnable: Runnable? = null
+
+    // Screen content is only accessed for the supported driver packages.
+    // Foreground metadata from other apps is used solely to remove overlays.
+    private val watchedPackages: Set<String> by lazy {
+        resources.getStringArray(R.array.watched_packages).toSet()
+    }
 
     private val handler = Handler(Looper.getMainLooper())
     private var hideRunnable: Runnable? = null
@@ -130,9 +137,26 @@ class GigFlowAccessibilityService : AccessibilityService() {
      *  single-frame parse misses are normal (animations, partial draws)
      *  and shouldn't flicker the verdict off. */
     private fun maybeOfferGone(now: Long) {
-        if (activeOffer == null) return
-        if (now - lastSeenAt < MISS_GRACE_MS) return
-        offerGone()
+        val current = activeOffer ?: return
+        // A parse miss should never leave a pending automatic tap.
+        cancelAutoAccept()
+        missingOfferRunnable?.let { handler.removeCallbacks(it) }
+        missingOfferRunnable = null
+        val delay = lastSeenAt + MISS_GRACE_MS - now
+        if (delay <= 0) {
+            offerGone()
+            return
+        }
+        val fingerprint = current.offer.fingerprint
+        val cleanup = Runnable {
+            missingOfferRunnable = null
+            if (activeOffer?.offer?.fingerprint == fingerprint &&
+                System.currentTimeMillis() - lastSeenAt >= MISS_GRACE_MS) {
+                offerGone()
+            }
+        }
+        missingOfferRunnable = cleanup
+        handler.postDelayed(cleanup, delay + 50L)
     }
 
     /** Last-known fix — good enough for tagging where an offer appeared. */
@@ -151,15 +175,26 @@ class GigFlowAccessibilityService : AccessibilityService() {
         val pkg = event.packageName?.toString() ?: return
         val now = System.currentTimeMillis()
 
-        // Events only arrive from watched driver apps (manifest filters), so
-        // any event means the driver is inside a work app — feed the
-        // auto-shift tracker before anything else.
+        if (pkg !in watchedPackages) {
+            // Do not flatten, inspect, or log screen text from other apps.
+            // Check only which app owns the active foreground window.
+            if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                val foregroundPkg = rootInActiveWindow?.packageName?.toString()
+                if (foregroundPkg == pkg ||
+                    (foregroundPkg == null && pkg != packageName &&
+                        pkg != "com.android.systemui")) {
+                    offerGone()
+                }
+            }
+            return
+        }
         onDriverAppSeen(now)
 
         val prefs = settings.rulesFor(pkg) // per-app overrides over globals
         // Monitoring switched off while an overlay was up — tear it down.
         if (!prefs.enabled) { offerGone(); return }
-        if (now - lastScanAt < 350) return // throttle contentChanged storms
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED &&
+            now - lastScanAt < 350) return // never throttle full window transitions
         lastScanAt = now
 
         // Symbols beyond the built-in set (R$, ₩, KSh…) match through the
@@ -211,6 +246,8 @@ class GigFlowAccessibilityService : AccessibilityService() {
             return
         }
         Diagnostics.record(this, pkg, "offer", nodes.map { it.diag() })
+        missingOfferRunnable?.let { handler.removeCallbacks(it) }
+        missingOfferRunnable = null
 
         // Same card still on screen — don't rescore/re-overlay every frame.
         if (offer.fingerprint == lastFingerprint && now - lastSeenAt < 60_000) {
@@ -448,6 +485,9 @@ class GigFlowAccessibilityService : AccessibilityService() {
 
     private fun offerGone() {
         hideRunnable?.let { handler.removeCallbacks(it) }
+        hideRunnable = null
+        missingOfferRunnable?.let { handler.removeCallbacks(it) }
+        missingOfferRunnable = null
         hideToken = ""
         cancelAutoAccept() // never tap bounds for a card that's no longer up
         activeOffer = null
@@ -461,6 +501,8 @@ class GigFlowAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         instance = null
+        missingOfferRunnable?.let { handler.removeCallbacks(it) }
+        missingOfferRunnable = null
         cancelAutoAccept()
         overlay.hide()
         tts?.shutdown()

@@ -104,8 +104,9 @@ gradle assembleDebug   # → app/build/outputs/apk/debug/app-debug.apk
 
 ## How it works
 
-- **Accessibility service** scoped to the watched driver-app packages —
-  it can't see anything else on your phone
+- **Accessibility service** reads screen contents only in supported driver
+  apps. It observes foreground-app package changes elsewhere solely to
+  dismiss stale overlays; no screen text from other apps is inspected.
 - **Heuristic text parsing** of offer cards (layout-independent, but
   layouts change — Diagnostics shows what it read when a screen is missed)
 - **`dispatchGesture` taps** for accept/decline — only when you enable it,

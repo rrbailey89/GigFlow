@@ -115,3 +115,73 @@ class StrictRideshareOfferTest {
             "com.doordash.driverapp", listOf("$14.00", "4 mi", "12 min")))
     }
 }
+
+
+/** Reservation context and payout-amount parsing regression tests. */
+class ReservationDetectionTest {
+    private val uber = "com.ubercab.driver"
+
+    @Test
+    fun discoverReservationListIsNotAnOffer() {
+        val t = listOf("Discover", "Reservations", "Monday, Oct 12",
+            "$61.01, 67.1 mi UberX", "Accept", "Info", "Extra $8.50 per active hour")
+        assertTrue(OfferParser.isReservationListScreen(uber, t))
+        assertFalse(OfferParser.hasExplicitRideshareRequestCue(uber, t))
+    }
+
+    @Test
+    fun individualReservationRequestDetailsCount() {
+        val t = listOf("Reservation request", "UberX", "$61.01",
+            "Today at 1:50 PM", "81 min (67.1 mi) trip", "Accept • $61.01")
+        assertTrue(OfferParser.isReservationDetailScreen(uber, t))
+        assertTrue(OfferParser.hasExplicitRideshareRequestCue(uber, t))
+    }
+
+    @Test
+    fun incompleteReservationDetailDoesNotCountYet() {
+        assertFalse(OfferParser.hasExplicitRideshareRequestCue(uber,
+            listOf("Reservation request", "$61.01", "81 min", "67.1 mi")))
+    }
+
+    @Test
+    fun plainAcceptOnReservationDetailCounts() {
+        assertTrue(OfferParser.hasExplicitRideshareRequestCue(uber,
+            listOf("Reservation request", "Accept", "$61.01", "67.1 mi")))
+    }
+
+    @Test
+    fun fareAndMileageAreNeverJoined() {
+        val m = OfferParser.moneyOf("$61.01 67.1 mi")
+        assertTrue(m != null && kotlin.math.abs(m.first - 61.01) < 0.001)
+    }
+
+    @Test
+    fun fareInsideReservationAcceptButtonIsCorrect() {
+        val m = OfferParser.moneyOf("Accept • $61.01")
+        assertTrue(m != null && kotlin.math.abs(m.first - 61.01) < 0.001)
+    }
+
+    @Test
+    fun thousandGroupSeparatorsStillParse() {
+        val m = OfferParser.moneyOf("$1,234.56")
+        assertTrue(m != null && kotlin.math.abs(m.first - 1234.56) < 0.001)
+    }
+
+    @Test
+    fun hungarianForintWithSpaceGroupStillParses() {
+        val m = OfferParser.moneyOf("1 850 Ft")
+        assertTrue(m != null && kotlin.math.abs(m.first - 1850.0) < 0.001)
+    }
+
+    @Test
+    fun europeanDotCommaGroupingStillParses() {
+        val m = OfferParser.moneyOf("1.850,50 EUR")
+        assertTrue(m != null && kotlin.math.abs(m.first - 1850.50) < 0.001)
+    }
+
+    @Test
+    fun ordinaryUberOfferStillRecognized() {
+        assertTrue(OfferParser.hasExplicitRideshareRequestCue(uber,
+            listOf("UberX", "$12.50", "6 mi", "12 min", "Accept")))
+    }
+}

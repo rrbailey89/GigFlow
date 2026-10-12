@@ -27,8 +27,11 @@ The companion app is **fully local**:
 - **Screen content:** the accessibility service reads offer cards inside
   the driver apps you choose (Uber, Lyft, Dasher, Instacart, Amazon Flex,
   Spark, Wolt, foodora). Raw screen content is processed on-device and is
-  never transmitted. Only distilled fields — payout, distance, duration,
-  verdict, action taken — are kept, in a capped on-device log.
+  never transmitted. For safety the service also observes foreground-window
+  changes by package name in other apps to clear stale offer overlays, but
+  does not inspect those apps' screen contents. Only distilled fields —
+  payout, distance, duration, verdict, action taken — are kept in a capped
+  on-device log.
 - **Location:** only while an active shift is running (started by you, or
   automatically if you enable auto-tracking) the app records GPS positions
   on-device to compute distance. Location is never collected outside a

@@ -105,7 +105,7 @@ class SettingsRepository(context: Context) {
 
     /** Whether the auto-accept countdown also fires on scheduled/reserved work. */
     var autoAcceptReservations: Boolean
-        get() = prefs.getBoolean("auto_accept_reservations", true)
+        get() = prefs.getBoolean("auto_accept_reservations", false)
         set(v) = prefs.edit().putBoolean("auto_accept_reservations", v).apply()
 
     // ---- Per-app rule overrides (Mystro's per-service filters) ----

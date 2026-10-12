@@ -2,12 +2,11 @@
 <resources>
     <string name="app_name">GigFlow Driver</string>
     <string name="service_label">GigFlow Offer Assistant</string>
-    <string name="service_description">Reads offer cards shown by rideshare and delivery apps and evaluates them against your GigFlow rules. Optionally taps accept or decline when automation is enabled. GigFlow only acts inside the driver apps you choose, never touches other apps, and performs no action unless you enable it.</string>
+    <string name="service_description">Reads offer cards shown by rideshare and delivery apps and evaluates them against your GigFlow rules. Optionally taps accept or decline when automation is enabled. GigFlow reads screen contents only inside supported driver apps. It observes other apps\u0027 foreground-window changes solely to dismiss stale offer overlays. It never taps other apps, and automatic actions require your permission.</string>
     <string name="service_summary">Scores incoming gig offers on-screen</string>
 
-    <!-- Shown in the Assist UI. The accessibility service filters by the
-         literal list in res/xml/accessibility_service_config.xml — keep the
-         two in sync when adding or removing apps. -->
+    <!-- Supported driver packages. Window-state events from other apps
+         are used only to close stale overlays; their screens aren't read. -->
     <string-array name="watched_packages">
         <item>com.ubercab.driver</item>
         <item>com.lyft.android.driver</item>
