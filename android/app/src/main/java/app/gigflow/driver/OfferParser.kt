@@ -168,16 +168,54 @@ object OfferParser {
         """\b(?:navigate|start\s+(?:trip|ride)|end\s+(?:trip|ride)|complete\s+(?:trip|ride))\b""",
         RegexOption.IGNORE_CASE,
     )
-    private val NEW_TRIP_REQUEST = Regex(
-        """\b(?:trip\s+radar|new\s+(?:trip|ride|request)|(?:ride|trip)\s+request|exclusive|accept|decline|match\s+me)\b""",
+    /** A fare + route distance and time can be present outside an offer.
+     *  Require a separate, explicit request heading or short accept action.
+     *  "Acceptance rate" is NOT an action, and the Trip Radar tab alone is
+     *  not evidence of a live request.
+     */
+    private val REQUEST_HEADER = Regex(
+        """\b(?:new\s+(?:trip|ride|request|offer)|incoming\s+(?:trip|ride|request|offer)|""" +
+            """(?:ride|trip)\s+(?:request|offer)|exclusive\s+(?:ride|trip|request|offer))\b""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val REQUEST_BADGE = Regex(
+        """^(?:exclusive|exclusive offer|new request|new trip|new ride)$""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val REQUEST_ACTION = Regex(
+        """^(?:(?:tap|swipe|slide)\s+(?:anywhere\s+)?to\s+)?""" +
+            """(?:accept(?:\s+(?:this\s+)?(?:ride|trip|request|offer))?|""" +
+            """decline(?:\s+(?:ride|trip|request|offer))?|""" +
+            """match(?:\s+me)?|claim\s+(?:ride|trip|offer))$""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val RIDE_ACCEPT_ACTION = Regex(
+        """^(?:(?:tap|swipe|slide)\s+(?:anywhere\s+)?to\s+)?""" +
+            """(?:accept(?:\s+(?:this\s+)?(?:ride|trip|request|offer))?|match(?:\s+me)?)$""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val RIDE_DECLINE_ACTION = Regex(
+        """^(?:decline(?:\s+(?:ride|trip|request|offer))?|reject|no thanks)$""",
         RegexOption.IGNORE_CASE,
     )
 
+    fun isRidesharePackage(pkg: String): Boolean = pkg in TAP_ANYWHERE_PKGS
+
+    fun hasExplicitRideshareRequestCue(pkg: String, texts: List<String>): Boolean {
+        if (!isRidesharePackage(pkg)) return true
+        return texts.any { raw ->
+            val label = raw.trim()
+            (label.length <= 100 && REQUEST_HEADER.containsMatchIn(label)) ||
+                (label.length <= 40 && REQUEST_BADGE.matches(label)) ||
+                (label.length <= 60 && REQUEST_ACTION.matches(label))
+        }
+    }
+
     fun isActiveTripNavigation(pkg: String, texts: List<String>): Boolean {
-        if (pkg !in TAP_ANYWHERE_PKGS) return false
+        if (!isRidesharePackage(pkg)) return false
         return texts.any { ACTIVE_TRIP_STATUS.containsMatchIn(it) } &&
             texts.any { ACTIVE_TRIP_NAVIGATION.containsMatchIn(it) } &&
-            texts.none { NEW_TRIP_REQUEST.containsMatchIn(it) }
+            !hasExplicitRideshareRequestCue(pkg, texts)
     }
 
     data class FlatNode(
@@ -216,6 +254,7 @@ object OfferParser {
     ): DetectedOffer? {
         val texts = nodes.map { it.text }
         if (isActiveTripNavigation(pkg, texts)) return null
+        if (!hasExplicitRideshareRequestCue(pkg, texts)) return null
 
         // Collect money figures with their context. The card total is usually
         // the largest standalone amount; "incl. tip" lines become tips.
@@ -283,15 +322,17 @@ object OfferParser {
 
         val isReservation = texts.any { RESERVATION.containsMatchIn(it) }
 
-        val accept = nodeMatching(ACCEPT_WORDS, clickableOnly = true)
-            ?: nodeMatching(ACCEPT_WORDS, clickableOnly = false)
+        val acceptWords = if (isRidesharePackage(pkg)) RIDE_ACCEPT_ACTION else ACCEPT_WORDS
+        val declineWords = if (isRidesharePackage(pkg)) RIDE_DECLINE_ACTION else DECLINE_WORDS
+        val accept = nodeMatching(acceptWords, clickableOnly = true)
+            ?: nodeMatching(acceptWords, clickableOnly = false)
             ?: if (isReservation && pkg == "com.amazon.rabbit") {
                 nodeMatching(RESERVE_ACCEPT, clickableOnly = true)
                     ?: nodeMatching(RESERVE_ACCEPT, clickableOnly = false)
             } else null
             ?: tapAnywhereAccept(payoutMoney?.node)
-        val decline = nodeMatching(DECLINE_WORDS, clickableOnly = true)
-            ?: nodeMatching(DECLINE_WORDS, clickableOnly = false)
+        val decline = nodeMatching(declineWords, clickableOnly = true)
+            ?: nodeMatching(declineWords, clickableOnly = false)
 
         return DetectedOffer(
             appPackage = pkg,

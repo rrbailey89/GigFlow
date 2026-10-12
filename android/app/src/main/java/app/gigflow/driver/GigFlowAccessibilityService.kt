@@ -177,10 +177,23 @@ class GigFlowAccessibilityService : AccessibilityService() {
         }
 
         val nodes = OfferParser.flatten(root)
-        if (OfferParser.isActiveTripNavigation(pkg, nodes.map { it.text })) {
+        val screenTexts = nodes.map { it.text }
+        if (OfferParser.isActiveTripNavigation(pkg, screenTexts)) {
             // Stop any stale overlay or pending automated tap immediately.
             Diagnostics.record(this, pkg, "trip", nodes.map { it.diag() })
             offerGone()
+            return
+        }
+        if (!OfferParser.hasExplicitRideshareRequestCue(pkg, screenTexts)) {
+            // Amounts from an earnings widget must not combine with ETA and
+            // distance elsewhere on-screen to masquerade as a new request.
+            val hasMoney = nodes.any {
+                OfferParser.moneyOf(it.text, extraRe, curSymbol) != null
+            }
+            Diagnostics.record(this, pkg, if (hasMoney) "ignored" else "idle",
+                nodes.map { it.diag() })
+            maybeLogCompletion(pkg, nodes, now, extraRe, curSymbol)
+            offerGone() // also cancels any stale automated tap
             return
         }
         val offer = OfferParser.parse(pkg, nodes, extraRe, curSymbol)

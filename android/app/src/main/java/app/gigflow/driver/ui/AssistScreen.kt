@@ -168,6 +168,7 @@ class AssistScreen(
                 snap.outcome == "offer" -> "Offer scored · ${ago(snap.at)}" to p.green
                 snap.outcome == "miss" -> "Screen missed · ${ago(snap.at)}" to p.orange
                 snap.outcome == "trip" -> "Active trip ignored · ${ago(snap.at)}" to p.label2
+                snap.outcome == "ignored" -> "Not an offer · ${ago(snap.at)}" to p.label2
                 else -> "Screen seen · ${ago(snap.at)}" to p.label2
             }
             card.addView(Sections.row(ctx, p,
@@ -176,6 +177,18 @@ class AssistScreen(
                 iconGlyph = "doc", iconTint = tint,
                 chevron = snap?.texts?.isNotEmpty() == true,
             ) { snap?.let { showDiag(name, it) } })
+            // Preserve the last actual scored snapshot after navigating away.
+            if (OfferParser.isRidesharePackage(pkg)) {
+                Diagnostics.getLastScored(ctx, pkg)?.let { scored ->
+                    card.addView(Sections.separator(ctx, p))
+                    card.addView(Sections.row(ctx, p,
+                        title = "Last analyzed — $name",
+                        subtitle = "Saved ${ago(scored.at)} · tap to share",
+                        iconGlyph = "doc", iconTint = p.orange,
+                        chevron = true,
+                    ) { showDiag(name, scored) })
+                }
+            }
         }
         return card
     }
@@ -206,6 +219,7 @@ class AssistScreen(
             text = when (snap.outcome) {
                 "miss" -> "This screen had a price on it but wasn't read as an offer — the app's layout probably changed. Tap 'Share this report' and send it over."
                 "trip" -> "GigFlow recognized active-trip navigation and intentionally ignored it. New ride requests with clear offer controls can still be scored."
+                "ignored" -> "GigFlow detected money but no definite request or Accept control. It ignored this screen. Share this report if a real request was missed."
                 else -> "Everything the assistant read on the last screen."
             }
             textSize = Ios.T_FOOTNOTE; setTextColor(p.label2)

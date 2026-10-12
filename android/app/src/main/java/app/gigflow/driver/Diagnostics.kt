@@ -15,6 +15,7 @@ object Diagnostics {
 
     private const val FILE = "gigflow_diag"
     private const val KEY = "snaps"
+    private const val LAST_SCORED_KEY = "last_scored"
     private const val MAX_TEXTS = 60
 
     // Throttle plain "idle" writes — only interesting outcomes and stale
@@ -23,7 +24,7 @@ object Diagnostics {
 
     data class Snap(
         val at: Long,
-        val outcome: String, // "offer" | "miss" | "trip" | "idle"
+        val outcome: String, // "offer" | "miss" | "trip" | "ignored" | "idle"
         val texts: List<String>,
     )
 
@@ -46,7 +47,26 @@ object Diagnostics {
             .put("at", System.currentTimeMillis())
             .put("outcome", outcome)
             .put("texts", joined)
-        prefs.edit().putString(KEY, all.put(pkg, o).toString()).apply()
+        val edit = prefs.edit().putString(KEY, all.put(pkg, o).toString())
+        // Preserve the last scored screen for false-positive reports.
+        if (outcome == "offer") {
+            val history = JSONObject(prefs.getString(LAST_SCORED_KEY, "{}") ?: "{}")
+            edit.putString(LAST_SCORED_KEY, history.put(pkg, o).toString())
+        }
+        edit.apply()
+    }
+
+    fun getLastScored(ctx: Context, pkg: String): Snap? {
+        val all = JSONObject(
+            ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+                .getString(LAST_SCORED_KEY, "{}") ?: "{}",
+        )
+        val o = all.optJSONObject(pkg) ?: return null
+        return Snap(
+            at = o.optLong("at"),
+            outcome = "offer",
+            texts = o.optString("texts").split("\n").filter { it.isNotBlank() },
+        )
     }
 
     fun get(ctx: Context, pkg: String): Snap? {
@@ -63,6 +83,7 @@ object Diagnostics {
     }
 
     fun clear(ctx: Context) {
-        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().remove(KEY).apply()
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+            .remove(KEY).remove(LAST_SCORED_KEY).apply()
     }
 }

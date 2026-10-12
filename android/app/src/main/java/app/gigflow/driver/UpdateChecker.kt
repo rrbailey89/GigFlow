@@ -58,6 +58,12 @@ object UpdateChecker {
 
     /** Fetch the latest release; cb(null) when nothing newer or on error. */
     fun check(ctx: Context, cb: (Release?) -> Unit) {
+        // This fork's debug builds are signed separately from upstream.
+        // Do not offer an upstream APK that would undo the package/parser fixes.
+        if (ctx.packageName.endsWith(".debug")) {
+            cb(null)
+            return
+        }
         val current = currentVersion(ctx)
         io.execute {
             val rel = try {
