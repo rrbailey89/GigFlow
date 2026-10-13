@@ -72,6 +72,8 @@ Five tabs behind a floating frosted tab bar:
   be parsed, nothing is shown — the app errs toward silence and never
   guesses at buttons.
 - **Android only.** iOS doesn't permit this class of screen-reading.
+- **System navigation stays visible.** GigFlow preserves Android's normal
+  gesture bar or three-button navigation alongside its own bottom tab bar.
 - **Automation is opt-in** and only fires when the button was found
   unambiguously.
 - **Policy note.** Google Play restricts accessibility services that aren't

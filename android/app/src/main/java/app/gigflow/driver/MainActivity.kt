@@ -6,7 +6,6 @@ import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.view.WindowInsets
-import android.view.WindowInsetsController
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import app.gigflow.driver.ui.*
@@ -72,17 +71,13 @@ class MainActivity : Activity() {
         }
         setContentView(root)
 
-        // Edge-to-edge: content flows under the status bar; the nav bar hides
-        // and only reappears on a bottom swipe (transient, never resizes us).
+        // Edge-to-edge content while KEEPING Android's system navigation
+        // visible. GigFlow's tab bar is not a substitute for the OS bar.
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
         if (Build.VERSION.SDK_INT >= 30) {
             window.setDecorFitsSystemWindows(false)
-            window.insetsController?.let { ctl ->
-                ctl.hide(WindowInsets.Type.navigationBars())
-                ctl.systemBarsBehavior =
-                    WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            }
+            window.insetsController?.show(WindowInsets.Type.navigationBars())
             root.setOnApplyWindowInsetsListener { _, insets ->
                 val sys = insets.getInsets(WindowInsets.Type.systemBars())
                 content.setPadding(0, sys.top, 0, 0)
@@ -91,11 +86,7 @@ class MainActivity : Activity() {
             }
         } else {
             @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility =
-                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
-                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
-                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         }
 
         show(0)
@@ -133,6 +124,14 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        // Reassert OS navigation visibility after returning from another
+        // activity (e.g. the installer, an accessibility settings screen).
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.insetsController?.show(WindowInsets.Type.navigationBars())
+        } else {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        }
         if (::tabBar.isInitialized) refresh(current)
     }
 
