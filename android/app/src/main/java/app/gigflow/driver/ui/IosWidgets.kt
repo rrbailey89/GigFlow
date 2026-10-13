@@ -383,7 +383,7 @@ fun iosButton(ctx: Context, p: Palette, label: String, tint: Int? = null): Butto
  * iOS-style bottom sheet dialog — slides up over dim, grabber handle,
  * tap anywhere outside (or back) to dismiss.
  */
-class IosSheet(ctx: Context, private val p: Palette) {
+class IosSheet(private val ctx: Context, private val p: Palette) {
 
     private val dialog = Dialog(ctx, android.R.style.Theme_Translucent_NoTitleBar)
     private val container = LinearLayout(ctx)
@@ -439,6 +439,11 @@ class IosSheet(ctx: Context, private val p: Palette) {
     fun add(v: View): IosSheet { content.addView(v); return this }
     fun show(): IosSheet {
         dialog.show()
+        // A dialog owns its own window: honor the same optional immersive
+        // preference here as in the underlying GigFlow activity.
+        dialog.window?.let { w ->
+            (ctx as? app.gigflow.driver.MainActivity)?.applyNavigationBarPreference(w)
+        }
         container.translationY = container.height.toFloat().coerceAtLeast(300f)
         container.post {
             container.translationY = container.height.toFloat()

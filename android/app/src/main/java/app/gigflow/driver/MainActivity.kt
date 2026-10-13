@@ -6,6 +6,8 @@ import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.view.WindowInsets
+import android.view.WindowInsetsController
+import android.view.Window
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import app.gigflow.driver.ui.*
@@ -71,23 +73,20 @@ class MainActivity : Activity() {
         }
         setContentView(root)
 
-        // Edge-to-edge content while KEEPING Android's system navigation
-        // visible. GigFlow's tab bar is not a substitute for the OS bar.
+        // Edge-to-edge content; keep the OS navigation bar visible unless
+        // the driver explicitly enables immersive mode in Assistant settings.
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
         if (Build.VERSION.SDK_INT >= 30) {
             window.setDecorFitsSystemWindows(false)
-            window.insetsController?.show(WindowInsets.Type.navigationBars())
             root.setOnApplyWindowInsetsListener { _, insets ->
                 val sys = insets.getInsets(WindowInsets.Type.systemBars())
                 content.setPadding(0, sys.top, 0, 0)
                 tabBar.setPadding(0, 0, 0, sys.bottom)
                 insets
             }
-        } else {
-            @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         }
+        applyNavigationBarPreference()
 
         show(0)
         UpdateChecker.promptIfNewer(this, p)
@@ -122,16 +121,40 @@ class MainActivity : Activity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        // Reassert OS navigation visibility after returning from another
-        // activity (e.g. the installer, an accessibility settings screen).
+    /**
+     * Toggle the navigation bar without restarting GigFlow. Activity-owned
+     * windows and the app's dialogs can both call this function. This
+     * controls only our own window; it cannot change global Android settings.
+     */
+    fun applyNavigationBarPreference(target: Window = window) {
+        val hide = settings.hideSystemNavigationBar
         if (Build.VERSION.SDK_INT >= 30) {
-            window.insetsController?.show(WindowInsets.Type.navigationBars())
+            target.insetsController?.let { controller ->
+                if (hide) {
+                    controller.systemBarsBehavior =
+                        WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                    controller.hide(WindowInsets.Type.navigationBars())
+                } else {
+                    controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_DEFAULT
+                    controller.show(WindowInsets.Type.navigationBars())
+                }
+            }
         } else {
             @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            target.decorView.systemUiVisibility = if (hide) {
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            } else {
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        applyNavigationBarPreference()
         if (::tabBar.isInitialized) refresh(current)
     }
 

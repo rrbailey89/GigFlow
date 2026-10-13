@@ -232,7 +232,7 @@ class AssistScreen(
             setTextColor(p.label2)
             setPadding(0, dp(ctx, 4f), 0, dp(ctx, 10f))
         })
-        val copy = iosButton(ctx, p, "Copy report to clipboard")
+        val copy = iosButton(ctx, p, "Copy report")
         copy.setOnClickListener {
             val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as
                 android.content.ClipboardManager
@@ -241,8 +241,26 @@ class AssistScreen(
             )
             Toast.makeText(ctx, "Diagnostics copied", Toast.LENGTH_SHORT).show()
         }
-        header.addView(copy, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        val share = iosButton(ctx, p, "Share report")
+        share.setOnClickListener {
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, report)
+            }
+            ctx.startActivity(Intent.createChooser(send, "Share diagnostics"))
+        }
+        val actions = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(copy, LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                rightMargin = dp(ctx, 5f)
+            })
+            addView(share, LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                leftMargin = dp(ctx, 5f)
+            })
+        }
+        header.addView(actions)
         sheet.add(header)
 
         // The scrollable diagnostics cannot push the Copy button offscreen.
@@ -260,22 +278,15 @@ class AssistScreen(
         }
         val scroller = android.widget.ScrollView(ctx).apply { addView(lines) }
         sheet.add(scroller)
+        // Limit sheet height on short screens, and scroll the report itself.
+        // The Copy/Share controls stay above the scroll area.
+        val maxLogHeight = minOf(
+            dp(ctx, 260f),
+            (ctx.resources.displayMetrics.heightPixels * 0.34f).toInt(),
+        ).coerceAtLeast(dp(ctx, 120f))
         scroller.layoutParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, dp(ctx, 320f))
-
-        val share = iosButton(ctx, p, "Share report")
-        share.setOnClickListener {
-            val send = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_TEXT, report)
-            }
-            ctx.startActivity(Intent.createChooser(send, "Share diagnostics"))
-        }
-        val footer = LinearLayout(ctx).apply {
-            setPadding(dp(ctx, 20f), dp(ctx, 8f), dp(ctx, 20f), 0)
-            addView(share)
-        }
-        sheet.add(footer).show()
+            LinearLayout.LayoutParams.MATCH_PARENT, maxLogHeight)
+        sheet.show()
     }
 
     private fun automationCard(): View {
@@ -458,6 +469,15 @@ class AssistScreen(
             secs.indexOf(settings.overlaySeconds).coerceAtLeast(0)) {
             settings.overlaySeconds = secs[it]
         })
+        card.addView(Sections.separator(ctx, p))
+
+        // Optional immersive mode. Only applies to GigFlow's own windows.
+        val (rNav, _) = Sections.switchRow(ctx, p, "Hide Android navigation bar",
+            "Only in GigFlow; swipe up to reveal it", settings.hideSystemNavigationBar) {
+            settings.hideSystemNavigationBar = it
+            (ctx as? MainActivity)?.applyNavigationBarPreference()
+        }
+        card.addView(rNav)
         card.addView(Sections.separator(ctx, p))
 
         // Haptics

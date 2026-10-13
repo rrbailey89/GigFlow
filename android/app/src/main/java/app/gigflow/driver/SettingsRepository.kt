@@ -74,6 +74,12 @@ class SettingsRepository(context: Context) {
         get() = prefs.getInt("overlay_seconds", 0)
         set(v) = prefs.edit().putInt("overlay_seconds", v).apply()
 
+    /** Optional immersive mode affects GigFlow's own activity and sheets only.
+     *  Keep Android's system navigation bar visible for existing installs. */
+    var hideSystemNavigationBar: Boolean
+        get() = prefs.getBoolean("hide_system_navigation_bar", false)
+        set(v) = prefs.edit().putBoolean("hide_system_navigation_bar", v).apply()
+
     /** Haptic feedback on taps/toggles. */
     var haptics: Boolean
         get() = prefs.getBoolean("haptics", true)

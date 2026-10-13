@@ -72,8 +72,12 @@ Five tabs behind a floating frosted tab bar:
   be parsed, nothing is shown — the app errs toward silence and never
   guesses at buttons.
 - **Android only.** iOS doesn't permit this class of screen-reading.
-- **System navigation stays visible.** GigFlow preserves Android's normal
-  gesture bar or three-button navigation alongside its own bottom tab bar.
+- **Optional system navigation.** Assistant → Preferences → Hide Android
+  navigation bar turns immersive mode on or off immediately for GigFlow's
+  own screens and dialogs. It defaults to off; Android's gesture bar or
+  three-button navigation remains visible until you turn it on.
+- **Diagnostics controls stay accessible.** Copy report and Share report
+  appear above a height-limited, independently scrollable node dump.
 - **Automation is opt-in** and only fires when the button was found
   unambiguously.
 - **Policy note.** Google Play restricts accessibility services that aren't
