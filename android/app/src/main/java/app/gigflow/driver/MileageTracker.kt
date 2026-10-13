@@ -14,7 +14,6 @@ import android.location.LocationManager
 import android.os.Build
 import android.os.IBinder
 import org.json.JSONObject
-import java.util.Locale
 
 /**
  * Shift mileage tracker — Gridwise-style on/off tracking. Started from the
@@ -127,13 +126,9 @@ class MileageTracker : Service(), LocationListener {
      *  re-attach the tap-to-open intent and Stop action or they vanish
      *  after the first odometer update. */
     private fun buildNotification(): Notification {
-        // Distances are stored as km; the display always follows Preferences.
-        val metric = SettingsRepository(this).distanceUnit == "KM"
-        val displayed = if (metric) kmSoFar else kmSoFar * 0.621371
-        val unit = if (metric) "km" else "mi"
-        val source = if (autoStarted) "Auto" else "Manual"
-        val text = String.format(Locale.getDefault(), "%.1f %s so far · %s shift",
-            displayed, unit, source)
+        val text = MileageDisplay.label(
+            kmSoFar, SettingsRepository(this).distanceUnit, autoStarted,
+        )
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE,

@@ -10,8 +10,8 @@ android {
         applicationId = "app.gigflow.driver"
         minSdk = 26
         targetSdk = 36
-        versionCode = 28
-        versionName = "1.6.2-rb7"
+        versionCode = 29
+        versionName = "1.6.2-rb8"
     }
 
     buildTypes {
