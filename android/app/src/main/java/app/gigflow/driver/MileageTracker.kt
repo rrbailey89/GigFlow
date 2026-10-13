@@ -14,6 +14,7 @@ import android.location.LocationManager
 import android.os.Build
 import android.os.IBinder
 import org.json.JSONObject
+import java.util.Locale
 
 /**
  * Shift mileage tracker — Gridwise-style on/off tracking. Started from the
@@ -27,21 +28,32 @@ class MileageTracker : Service(), LocationListener {
     companion object {
         const val ACTION_START = "app.gigflow.driver.action.START_TRACKING"
         const val ACTION_STOP = "app.gigflow.driver.action.STOP_TRACKING"
+        const val ACTION_REFRESH = "app.gigflow.driver.action.REFRESH_TRACKING"
+        private const val EXTRA_AUTOMATIC = "automatic_shift"
         private const val CHANNEL = "mileage_tracking"
         private const val NOTIF_ID = 42
 
         /** Live-ish state readable by the UI. */
         @Volatile var running = false
             private set
+        /** Only an automatically started shift may be stopped by an offline detection. */
+        @Volatile var autoStarted = false
+            private set
         @Volatile var kmSoFar = 0.0
             private set
         @Volatile var startedAt = 0L
             private set
 
+        /** Explicit user Start Shift. Existing callers always start manually. */
         fun startIntent(ctx: Context) =
             Intent(ctx, MileageTracker::class.java).setAction(ACTION_START)
+        /** Called only following confirmed online state from the driver app. */
+        fun automaticStartIntent(ctx: Context) =
+            startIntent(ctx).putExtra(EXTRA_AUTOMATIC, true)
         fun stopIntent(ctx: Context) =
             Intent(ctx, MileageTracker::class.java).setAction(ACTION_STOP)
+        fun refreshIntent(ctx: Context) =
+            Intent(ctx, MileageTracker::class.java).setAction(ACTION_REFRESH)
 
         fun hasLocationPermission(ctx: Context): Boolean =
             ctx.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) ==
@@ -58,21 +70,24 @@ class MileageTracker : Service(), LocationListener {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_START -> startTracking()
+            ACTION_START -> startTracking(intent.getBooleanExtra(EXTRA_AUTOMATIC, false))
             ACTION_STOP -> stopTracking()
-            else -> if (running) stopTracking() else stopSelf()
+            ACTION_REFRESH -> if (running) updateNotification() else stopSelf()
+            else -> if (!running) stopSelf()
         }
         return START_STICKY
     }
 
-    private fun startTracking() {
+    private fun startTracking(automatic: Boolean) {
         if (running) return
+        autoStarted = automatic
+        last = null
         val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= 26) {
             mgr.createNotificationChannel(NotificationChannel(
                 CHANNEL, "Mileage tracking", NotificationManager.IMPORTANCE_LOW))
         }
-        startForeground(NOTIF_ID, buildNotification("Shift active — tap to open"))
+        startForeground(NOTIF_ID, buildNotification())
 
         running = true
         kmSoFar = 0.0
@@ -111,7 +126,14 @@ class MileageTracker : Service(), LocationListener {
     /** Same notification shape every time — a rebuilt notification must
      *  re-attach the tap-to-open intent and Stop action or they vanish
      *  after the first odometer update. */
-    private fun buildNotification(text: String): Notification {
+    private fun buildNotification(): Notification {
+        // Distances are stored as km; the display always follows Preferences.
+        val metric = SettingsRepository(this).distanceUnit == "KM"
+        val displayed = if (metric) kmSoFar else kmSoFar * 0.621371
+        val unit = if (metric) "km" else "mi"
+        val source = if (autoStarted) "Auto" else "Manual"
+        val text = String.format(Locale.getDefault(), "%.1f %s so far · %s shift",
+            displayed, unit, source)
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE,
@@ -131,7 +153,7 @@ class MileageTracker : Service(), LocationListener {
 
     private fun updateNotification() {
         val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        mgr.notify(NOTIF_ID, buildNotification("%.1f km so far".format(kmSoFar)))
+        mgr.notify(NOTIF_ID, buildNotification())
     }
 
     private fun stopTracking() {
@@ -141,13 +163,16 @@ class MileageTracker : Service(), LocationListener {
         lm = null
         val km = kmSoFar
         val started = startedAt
+        val wasAutomatic = autoStarted
         kmSoFar = 0.0
         startedAt = 0L
+        autoStarted = false
+        last = null
         if (km >= 0.05 && db != null) {
             db!!.insert("mileage", JSONObject()
                 .put("distanceKm", km)
                 .put("purpose", "WORK")
-                .put("description", "Auto-tracked shift")
+                .put("description", if (wasAutomatic) "Auto-tracked shift" else "Manual shift")
                 .put("date", started))
         }
         stopForeground(STOP_FOREGROUND_REMOVE)

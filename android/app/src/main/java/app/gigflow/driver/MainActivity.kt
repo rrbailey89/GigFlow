@@ -24,7 +24,10 @@ import app.gigflow.driver.ui.*
 class MainActivity : Activity() {
 
     companion object {
+        /** Only Track -> Start Shift uses this request code. */
         const val REQ_LOCATION = 7
+        /** Assistant setup can grant GPS access WITHOUT starting a shift. */
+        const val REQ_LOCATION_SETUP = 8
     }
 
     private lateinit var settings: SettingsRepository
@@ -164,10 +167,16 @@ class MainActivity : Activity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQ_LOCATION) {
+            // This callback is ONLY the result of an explicit Start Shift tap.
             if (MileageTracker.hasLocationPermission(this)) {
                 startForegroundService(MileageTracker.startIntent(this))
             }
             if (::track.isInitialized) track.refresh()
+        } else if (requestCode == REQ_LOCATION_SETUP) {
+            // Permission setup never starts tracking. The next confirmed
+            // online state may start Auto-track if the user opted into it.
+            GigFlowAccessibilityService.instance?.onAutoTrackingSettingChanged()
+            if (::assist.isInitialized) assist.refresh()
         }
     }
 }

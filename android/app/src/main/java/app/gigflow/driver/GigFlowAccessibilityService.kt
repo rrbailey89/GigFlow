@@ -41,15 +41,12 @@ class GigFlowAccessibilityService : AccessibilityService() {
     private var localDb: LocalDb? = null
     private var countdownTicker: Runnable? = null
 
-    // Auto-shift tracking state
-    private var lastDriverAppAt = 0L
-    private var idleStopCheck: Runnable? = null
+    // Automatic mileage requires a positively identified online transition.
+    // A manually started shift is never controlled by driver-app events.
+    private val onlineStateTracker = DriverOnlineStateTracker()
     private val loggedCompletions = mutableSetOf<String>()
 
     companion object {
-        /** Auto-stop shift tracking after this long with no driver-app events. */
-        private const val IDLE_STOP_MS = 30 * 60_000L
-
         /** Frames can flicker mid-animation; give an offer this long to
          *  reappear before hiding the overlay. */
         private const val MISS_GRACE_MS = 2_000L
@@ -116,6 +113,16 @@ class GigFlowAccessibilityService : AccessibilityService() {
      * Monitoring toggle calls this directly.
      */
     fun stopWatching() = handler.post { offerGone() }
+
+    /** Called when the user changes Auto-track mileage, independently from
+     * offer monitoring. Turning auto-tracking off ends only auto GPS shifts. */
+    fun onAutoTrackingSettingChanged() = handler.post {
+        onlineStateTracker.reset()
+        if (!settings.autoTrackShift &&
+            MileageTracker.running && MileageTracker.autoStarted) {
+            stopService(MileageTracker.stopIntent(this))
+        }
+    }
 
     /**
      * Offer cards often live in a popup/dialog window that isn't the
@@ -188,11 +195,12 @@ class GigFlowAccessibilityService : AccessibilityService() {
             }
             return
         }
-        onDriverAppSeen(now)
-
         val prefs = settings.rulesFor(pkg) // per-app overrides over globals
-        // Monitoring switched off while an overlay was up — tear it down.
-        if (!prefs.enabled) { offerGone(); return }
+        // Offer monitoring and mileage tracking are independent settings.
+        if (!prefs.enabled && !settings.autoTrackShift) {
+            offerGone()
+            return
+        }
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED &&
             now - lastScanAt < 350) return // never throttle full window transitions
         lastScanAt = now
@@ -213,6 +221,10 @@ class GigFlowAccessibilityService : AccessibilityService() {
 
         val nodes = OfferParser.flatten(root)
         val screenTexts = nodes.map { it.text }
+        // Merely opening the driver app NEVER starts a mileage shift.
+        // Confirmation must come from a currently-online status on screen.
+        onDriverOnlineStateSeen(pkg, screenTexts)
+        if (!prefs.enabled) { offerGone(); return }
         if (OfferParser.isActiveTripNavigation(pkg, screenTexts)) {
             // Stop any stale overlay or pending automated tap immediately.
             Diagnostics.record(this, pkg, "trip", nodes.map { it.diag() })
@@ -377,31 +389,40 @@ class GigFlowAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Auto shift tracking (opt-in): opening any watched driver app starts GPS
-     * mileage; 30 minutes without a watched app stops it. The overlay
-     * permission we already hold exempts us from background-FGS limits, but
-     * guard anyway — worst case is the user taps "Start shift" themselves.
+     * Automatically record mileage only after a real driver-app online-state
+     * transition. A manual shift may be started/stopped independently from
+     * the Track tab or the notification; unknown navigation/reservation
+     * screens do not change GPS tracking state.
+     *
+     * Conservative v1 labels are calibrated for Uber/Lyft. Apps whose
+     * online/offline labels are unknown never trigger automatic GPS.
      */
-    private fun onDriverAppSeen(now: Long) {
-        lastDriverAppAt = now
-        if (!settings.autoTrackShift) return
-        if (!MileageTracker.hasLocationPermission(this)) return
-        if (!MileageTracker.running) {
-            try {
-                startForegroundService(MileageTracker.startIntent(this))
-            } catch (_: Exception) { /* background-start blocked — manual start still works */ }
-        }
-        // Arm the idle-stop check; every driver-app event pushes it out.
-        idleStopCheck?.let { handler.removeCallbacks(it) }
-        val check = Runnable {
-            if (System.currentTimeMillis() - lastDriverAppAt >= IDLE_STOP_MS &&
-                MileageTracker.running
-            ) {
-                stopService(MileageTracker.stopIntent(this))
+    private fun onDriverOnlineStateSeen(pkg: String, texts: List<String>) {
+        if (!settings.autoTrackShift ||
+            !MileageTracker.hasLocationPermission(this)) return
+        when (onlineStateTracker.onScreen(
+            pkg = pkg,
+            texts = texts,
+            autoEnabled = true,
+            mileageRunning = MileageTracker.running,
+            mileageAutomatic = MileageTracker.autoStarted,
+        )) {
+            MileageTransition.START_AUTO -> {
+                try {
+                    startForegroundService(MileageTracker.automaticStartIntent(this))
+                } catch (_: Exception) {
+                    // If Android forbids the background start, allow the next
+                    // confirmed-online screen to retry. Manual start still works.
+                    onlineStateTracker.reset()
+                }
             }
+            MileageTransition.STOP_AUTO -> {
+                if (MileageTracker.running && MileageTracker.autoStarted) {
+                    stopService(MileageTracker.stopIntent(this))
+                }
+            }
+            MileageTransition.NONE -> Unit
         }
-        idleStopCheck = check
-        handler.postDelayed(check, IDLE_STOP_MS)
     }
 
     /**

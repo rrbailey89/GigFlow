@@ -22,6 +22,13 @@ Five tabs behind a floating frosted tab bar:
 - **Assistant** — accessibility-service status, Monitoring / Auto-accept /
   Auto-decline switches (both automation switches off by default), offer
   rules, and diagnostics.
+- **Mileage starts deliberately** — Track → Start shift begins a manual
+  shift. If Auto-track mileage is enabled, Uber/Lyft must show an explicit
+  online state before tracking can start. Simply opening a driver app or
+  granting location permission never starts a shift.
+- **Live distance units** — the persistent GPS notification follows Miles
+  or Kilometres in Preferences, including after an in-app unit change.
+  Internally, saved distances remain in kilometres for consistency.
 
 ## The assistant (Mystro-style, honest version)
 

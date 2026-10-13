@@ -142,7 +142,7 @@ class AssistScreen(
             (ctx as? android.app.Activity)?.requestPermissions(
                 arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION,
                     android.Manifest.permission.ACCESS_COARSE_LOCATION),
-                MainActivity.REQ_LOCATION,
+                MainActivity.REQ_LOCATION_SETUP,
             )
         }
         step("Allow notifications",
@@ -306,8 +306,9 @@ class AssistScreen(
         val (r4, _) = Sections.switchRow(ctx, p, "Voice alerts",
             "Speak verdicts aloud as offers appear", settings.voiceAlerts) { settings.voiceAlerts = it }
         val (r5, _) = Sections.switchRow(ctx, p, "Auto-track mileage",
-            "Start a GPS shift when a driver app opens", settings.autoTrackShift) {
+            "Start when Uber or Lyft confirms you're online", settings.autoTrackShift) {
             settings.autoTrackShift = it
+            GigFlowAccessibilityService.instance?.onAutoTrackingSettingChanged()
         }
         val (r6, _) = Sections.switchRow(ctx, p, "Auto-log earnings",
             "Record payouts from post-trip summary screens", settings.autoLogEarnings) {
@@ -459,6 +460,10 @@ class AssistScreen(
         card.addView(prefSegmentedRow("Units", listOf("Miles", "Kilometres"),
             if (settings.distanceUnit == "KM") 1 else 0) {
             settings.distanceUnit = if (it == 1) "KM" else "MI"
+            // Refresh the notification even when the vehicle is stationary.
+            if (MileageTracker.running) {
+                ctx.startService(MileageTracker.refreshIntent(ctx))
+            }
         })
         card.addView(Sections.separator(ctx, p))
 

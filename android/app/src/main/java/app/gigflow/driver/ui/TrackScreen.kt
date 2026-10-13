@@ -52,18 +52,19 @@ class TrackScreen(
         buildForm(card)
         c.addView(card)
 
-        // Automatic shift tracking — Gridwise-style: start a shift, drive in
-        // any app, GPS accumulates km and saves one mileage record on stop.
+        // Manual shifts are explicit and independent of Uber/Lyft availability.
+        // Automatic shifts require a confirmed online state if enabled.
         c.addView(Sections.header(ctx, p, "Shift tracking"))
         val shiftCard = Sections.card(ctx, p)
         val running = MileageTracker.running
         val km = MileageTracker.kmSoFar
         shiftCard.addView(Sections.row(ctx, p,
-            title = if (running) "Shift in progress" else "Automatic mileage",
+            title = if (running) "Shift in progress" else "Shift mileage",
             subtitle = when {
-                running -> "${distText(km)} tracked · keep driving"
+                running -> "${distText(km)} tracked · " +
+                    if (MileageTracker.autoStarted) "Auto shift" else "Manual shift"
                 MileageTracker.hasLocationPermission(ctx) ->
-                    "GPS tracks your distance while you work"
+                    "Start manually, or auto-track once Uber/Lyft is online"
                 else -> "Needs location permission to track distance"
             },
         ))
